@@ -1,0 +1,6 @@
+metric,value
+mean_ret (high-low),0.0
+std_ret (high-low),0.0
+mean_abs_ret (high-low),0.0
+pos_rate (high-low),0.0
+mean_width (high-low),0.0
