@@ -7,7 +7,7 @@ from sklearn.ensemble import HistGradientBoostingRegressor
 
 from .day2_conformal import add_interval, conformal_q, volatility_scale
 from .day3_uncertainty_analysis import position_sizes, width_edges
-from .day4_rule_based_backtest import SESSIONS_PER_YEAR
+from .day4_rule_based_backtest import SESSIONS_PER_YEAR, return_risk
 from .prep_day1 import FEATURES
 
 LONG_SIZED = "Long-Only + Same Sizing"
@@ -55,21 +55,16 @@ def calibrate_error_scale(frame, rf_prediction, scale_model):
     return q, width_edges(learned["scaled_90_width"], SIZE_QUANTILES)
 
 
-def sizing_diagnostic(frame, rf_prediction, volatility_sizes, volatility_edges, scale_model, q, learned_edges):
+def sizing_diagnostic(frame, rf_prediction, volatility_sizes, scale_model, q, learned_edges):
     """The two overlays share the forecast center, direction, and sizing tiers."""
-    # The first width is a positive scalar multiple of rolling volatility.
-    # Recompute ranks and sizing from volatility alone to verify that identity.
-    pure_volatility = volatility_scale(frame)
-    vol_sizes = position_sizes(pure_volatility, volatility_edges)
-    np.testing.assert_array_equal(volatility_sizes, vol_sizes)
     learned = learned_interval(frame, rf_prediction, scale_model, q)
     learned_sizes = position_sizes(learned["scaled_90_width"], learned_edges)
     rank = learned["scaled_90_width"].rank()
-    vol_rank = pd.Series(pure_volatility, index=frame.index).rank()
+    vol_rank = pd.Series(volatility_scale(frame), index=frame.index).rank()
     abs_error = (rf_prediction["market_return"] - rf_prediction["prediction"]).abs()
     return learned, learned_sizes, {
         "scale_rank_correlation": rank.corr(vol_rank),
-        "sessions_with_different_sizes": int(np.count_nonzero(learned_sizes != vol_sizes)),
+        "sessions_with_different_sizes": int(np.count_nonzero(learned_sizes != volatility_sizes)),
         "volatility_abs_error_rank_correlation": vol_rank.corr(abs_error.rank()),
         "learned_abs_error_rank_correlation": rank.corr(abs_error.rank()),
     }
@@ -108,9 +103,7 @@ def paired_intervals(ledger, contrasts):
     indices = ((starts[..., None] + np.arange(BLOCK_SESSIONS)) % n).reshape(BOOTSTRAP_DRAWS, -1)[:, :n]
 
     def metrics(returns):
-        mean = returns.mean(axis=-1)
-        std = returns.std(axis=-1, ddof=1)
-        sharpe = np.divide(np.sqrt(SESSIONS_PER_YEAR) * mean, std, out=np.full_like(mean, np.nan), where=std > 0)
+        _, sharpe = return_risk(returns)
         annualized = np.expm1(np.log1p(returns).mean(axis=-1) * SESSIONS_PER_YEAR)
         return {"annualized_return": annualized, "sharpe": sharpe}
 

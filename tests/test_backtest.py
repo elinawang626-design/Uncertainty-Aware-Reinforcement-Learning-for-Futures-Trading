@@ -1,6 +1,7 @@
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import Mock, patch
 
 import numpy as np
 import pandas as pd
@@ -8,9 +9,27 @@ import pandas as pd
 from src.day2_conformal import add_interval, conformal_q
 from src.day3_uncertainty_analysis import bucket_stats, position_sizes, width_edges
 from src.day4_rule_based_backtest import performance, simulate
+from src.es_sample_audit import cme_sample
+from src.experiment import Controls, evaluate
 from src.prep_day1 import FEATURES, build_es, load_spy, split_spy
-from src.rl import TradingEnvironment, fit_q
+from src.rl import N_MARKET_STATES, TradingEnvironment, fit_q
 from src.round2 import LONG_SIZED, direction_audit, paired_intervals
+
+
+def es_market():
+    dates = pd.bdate_range("2025-01-02", periods=67, name="date")
+    prices = 100.0 + np.arange(len(dates))
+    session_close = dates.tz_localize("UTC") + pd.Timedelta(hours=22)
+    session_open = session_close - pd.Timedelta(hours=23)
+    calendar = pd.DataFrame({"session_open": session_open, "session_close": session_close}, index=dates)
+    old = pd.DataFrame({
+        "open": prices, "close": prices, "volume": 1, "open_at": session_open,
+        "close_at": session_close - pd.Timedelta(seconds=2),
+        "close_available_at": session_close - pd.Timedelta(seconds=1),
+    }, index=dates)
+    new = old.assign(open=10 * prices, close=10 * prices,
+                     open_at=session_open + pd.Timedelta(seconds=1))
+    return calendar, {"old": old, "new": new}
 
 
 class TemporalTests(unittest.TestCase):
@@ -42,13 +61,12 @@ class TemporalTests(unittest.TestCase):
         self.assertAlmostEqual(row["market_return"], open_[62] / open_[61] - 1)
 
     def test_es_prices_and_features_do_not_jump_between_contracts(self):
-        dates = pd.bdate_range("2025-01-02", periods=67, name="date")
-        old_open = 100.0 + np.arange(len(dates))
-        new_open = 10 * old_open
-        old = pd.DataFrame({"open": old_open, "close": old_open, "volume": 1}, index=dates)
-        new = pd.DataFrame({"open": new_open, "close": new_open, "volume": 1}, index=dates)
+        calendar, contracts = es_market()
+        dates = calendar.index
+        old, new = contracts["old"], contracts["new"]
+        new_open = new["open"].to_numpy()
         roll = dates[61]
-        frame = build_es({"old": old, "new": new}, dates[0], dates[-1], {roll: "new"}, "old")
+        frame = build_es(contracts, calendar, {roll: "new"}, "old")
         prior, rolled = frame.loc[dates[59]], frame.loc[dates[60]]
         self.assertEqual(prior["exit_date"], roll)
         self.assertEqual(prior["exit_open"], old.loc[roll, "open"])
@@ -56,12 +74,64 @@ class TemporalTests(unittest.TestCase):
         self.assertTrue(rolled["roll"])
         self.assertAlmostEqual(rolled["market_return"], new_open[62] / new_open[61] - 1)
         self.assertAlmostEqual(frame.loc[roll, "ret"], new_open[61] / new_open[60] - 1)
+        self.assertEqual(prior["exit_at"], old.loc[roll, "open_at"])
+        self.assertEqual(rolled["entry_at"], new.loc[roll, "open_at"])
+        self.assertLess(rolled["decision_at"], rolled["entry_at"])
+        ledger = simulate(frame, np.ones(len(frame)))
+        pd.testing.assert_series_equal(ledger["entry_at"], frame["entry_at"])
 
         amended = new.copy()
         amended.loc[dates[62]:, ["open", "close"]] *= 1.2
-        perturbed = build_es({"old": old, "new": amended}, dates[0], dates[-1], {roll: "new"}, "old")
+        perturbed = build_es({"old": old, "new": amended}, calendar, {roll: "new"}, "old")
         pd.testing.assert_frame_equal(frame.loc[:roll, FEATURES], perturbed.loc[:roll, FEATURES])
         self.assertNotEqual(frame.loc[dates[60], "market_return"], perturbed.loc[dates[60], "market_return"])
+
+    def test_es_rejects_session_missing_from_every_contract(self):
+        calendar, contracts = es_market()
+        missing = calendar.index[62]
+        incomplete = {name: bars.drop(missing) for name, bars in contracts.items()}
+        with self.assertRaisesRegex(ValueError, f"Missing or invalid ES .* on {missing.date()}"):
+            build_es(incomplete, calendar, {}, "old")
+
+    def test_es_rejects_delayed_close_and_each_late_roll_leg(self):
+        calendar, contracts = es_market()
+        roll = calendar.index[61]
+        previous = calendar.index[60]
+        for name, field, date, delay, error in (
+            ("new", "close_available_at", previous, pd.Timedelta(minutes=2), "close timing"),
+            ("old", "open_at", roll, pd.Timedelta(minutes=6), "open timing"),
+            ("new", "open_at", roll, pd.Timedelta(minutes=6), "open timing"),
+        ):
+            with self.subTest(contract=name, field=field):
+                delayed = contracts[name].copy()
+                delayed.loc[date, field] += delay
+                with self.assertRaisesRegex(ValueError, f"ES {error} invalid for {name}"):
+                    build_es({**contracts, name: delayed}, calendar, {roll: "new"}, "old")
+
+    def test_es_requires_timezone_aware_fill_times(self):
+        calendar, contracts = es_market()
+        old = contracts["old"]
+        with self.assertRaisesRegex(ValueError, "timezone-aware, nonmissing open_at"):
+            build_es({"old": old.assign(open_at=old["open_at"].dt.tz_localize(None))},
+                     calendar, {}, "old")
+
+
+class AuditTests(unittest.TestCase):
+    def test_cme_counts_missing_trade_size_before_filtering_and_exempts_open_marker(self):
+        raw = pd.DataFrame({
+            "Delivery_Date": "202503", "Instrument_Symbol": "ESH5", "Ticker_Symbol": "ES",
+            "Future_Option_Index_Indicator": "FUT", "Exchange_Code": "XCME", "Market_Data_Report_Type": "TRD",
+            "Transaction_Time": "2025-03-11T22:00:00Z", "Trade_Price_Formatted": 5580.0,
+            "Sequence_Number": [1, 2, 3], "Trade_Quantity": [1, None, None],
+            "Close_Open_Type": [None, None, "O"],
+        })
+        with TemporaryDirectory() as scratch:
+            path = Path(scratch) / "cme.csv"
+            raw.to_csv(path, index=False)
+            audit = cme_sample(path)
+        self.assertEqual(audit["trade_rows"], 1)
+        self.assertEqual(audit["missing_required_trade_fields"], 1)
+        self.assertTrue(audit["contracts"][0]["open_matches_marker"])
 
 
 class UncertaintyTests(unittest.TestCase):
@@ -100,6 +170,30 @@ def market(returns, roll=None):
 
 
 class ExecutionTests(unittest.TestCase):
+    def test_execution_uses_volatility_at_the_rounded_width_cut(self):
+        # Reference calibration cutpoints round differently in the two units.
+        vol_cut = float.fromhex("0x1.6368cdcf2907dp-7")
+        width_cut = float.fromhex("0x1.47187cfaf03c3p-5")
+        above = np.nextafter(vol_cut, np.inf)
+        q = 1.8406697508993253
+        self.assertEqual(2 * q * above, width_cut)
+        frame = market([0.01, -0.01, 0.02]).assign(vol_20=[vol_cut, above, 0.012])
+        for feature in set(FEATURES).difference(frame.columns):
+            frame[feature] = 0.0
+        model = Mock()
+        model.predict.return_value = np.zeros(len(frame))
+        scale = Mock()
+        scale.predict.return_value = np.array([0.01, 0.02, 0.03])
+        quantiles = {90: (q, 0.01), 95: (2.0, 0.02)}
+        policy = np.zeros((N_MARKET_STATES, 3, 3))
+        controls = Controls(policy, scale, 1.0, np.array([]))
+        with TemporaryDirectory() as scratch, patch("src.experiment.plot_equity"):
+            out = Path(scratch)
+            evaluate(frame, {"rf": (model, quantiles)}, policy, [0.005, 0.02],
+                     [0.005, vol_cut], [], 1.0, controls, out, "test")
+            ledger = pd.read_csv(out / "daily_ledger.csv")
+        self.assertEqual(ledger["size_factor"].tolist(), [0.5, 0.0, 0.0])
+
     def test_suppressed_short_runs_and_matched_roll_costs(self):
         frame = market([0.02, -0.03, 0.01, 0.02, -0.02], [False, False, True, False, False])
         raw = np.array([1, -1, -1, 1, -1])
@@ -134,6 +228,16 @@ class ExecutionTests(unittest.TestCase):
         self.assertAlmostEqual(metrics["sharpe"], np.sqrt(252) * returns.mean() / returns.std(ddof=1))
         self.assertAlmostEqual(metrics["max_drawdown"], -0.1)
         self.assertAlmostEqual(metrics["annualized_return"], np.prod(1 + returns) ** (252 / 3) - 1)
+
+    def test_constant_nonzero_returns_have_undefined_sharpe(self):
+        ledger = simulate(market(np.repeat(0.001, 639)), np.ones(639), 0)
+        metrics = performance(ledger)
+        self.assertEqual(metrics["annualized_volatility"], 0.0)
+        self.assertTrue(np.isnan(metrics["sharpe"]))
+        intervals = paired_intervals({"a": ledger, "b": ledger}, [("same", "a", "b")]).set_index("metric")
+        self.assertEqual(intervals.loc["sharpe", "valid_draws"], 0)
+        self.assertTrue(np.isnan(intervals.loc["sharpe", "estimate"]))
+        self.assertEqual(intervals.loc["annualized_return", "estimate"], 0.0)
 
     def test_q_learning_uses_reward_sign_and_inventory_transition(self):
         edges = np.array([0.005, 0.02])

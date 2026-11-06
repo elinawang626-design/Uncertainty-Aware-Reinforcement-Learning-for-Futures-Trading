@@ -29,13 +29,17 @@ def cme_sample(path):
     ].copy()
     delivery = raw["Delivery_Date"]
     expected = "ES" + delivery.str[4:].map(QUARTER_CODES) + delivery.str[3:4]
-    if not expected.eq(raw["Instrument_Symbol"]).all():
+    wrong_delivery = delivery.notna() & ~expected.eq(raw["Instrument_Symbol"]).fillna(False)
+    if wrong_delivery.any():
         raise ValueError("CME sample contains a mismatched delivery code")
     raw["utc"] = pd.to_datetime(raw["Transaction_Time"], format="ISO8601", utc=True)
     local = raw["utc"].dt.tz_convert("America/Chicago").dt.tz_localize(None)
     raw["session"] = (local + pd.Timedelta(hours=7)).dt.normalize()
     raw["price"] = pd.to_numeric(raw["Trade_Price_Formatted"], errors="raise")
-    ticks = raw.loc[raw["Trade_Quantity"].gt(0)].sort_values(["utc", "Sequence_Number"], kind="stable")
+    marker_only = raw["Close_Open_Type"].isin(["O", "C"]) & raw["Trade_Quantity"].isna()
+    required = ["utc", "price", "Sequence_Number", "Trade_Quantity", "Delivery_Date"]
+    missing = raw[required].isna().any(axis=1)
+    ticks = raw.loc[~missing & raw["Trade_Quantity"].gt(0)].sort_values(["utc", "Sequence_Number"], kind="stable")
     if ticks.empty or not np.isfinite(ticks["price"]).all() or ticks["price"].le(0).any():
         raise ValueError("Invalid trade prices in CME sample")
     bars = ticks.groupby(["session", "Instrument_Symbol"]).agg(
@@ -57,7 +61,7 @@ def cme_sample(path):
         })
     return {
         "sha256": digest(path), "trade_rows": len(ticks), "unique_session_dates": bars.index.get_level_values(0).nunique(),
-        "missing_required_trade_fields": int(ticks[["utc", "price", "Sequence_Number", "Trade_Quantity"]].isna().any(axis=1).sum()),
+        "missing_required_trade_fields": int((missing & ~marker_only).sum()),
         "duplicate_trade_keys": int(ticks.duplicated(["Instrument_Symbol", "utc", "Sequence_Number"]).sum()),
         "out_of_regular_session_trades": int((local.loc[ticks.index].dt.hour == 16).sum()),
         "scheduled_roll_2025_03_17_present": bool(pd.Timestamp("2025-03-17") in bars.index.get_level_values(0)),

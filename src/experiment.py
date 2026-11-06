@@ -18,7 +18,7 @@ from .day2_conformal import volatility_scale
 from .day3_model_compare import fit_forecasters, forecast, forecast_metrics
 from .day3_uncertainty_analysis import bucket_stats, position_sizes, width_edges
 from .day4_rule_based_backtest import BASE_COST_BPS, baseline_positions, equity_curves, performance, simulate
-from .prep_day1 import ES_ROLLS, load_es, load_spy, split_spy
+from .prep_day1 import ES_REFERENCE_EXCLUSIONS, ES_ROLLS, load_es, load_spy, split_spy
 from .rl import TradingEnvironment, fit_q, select_policy
 from .round2 import (
     BLOCK_SESSIONS, BOOTSTRAP_DRAWS, BOOTSTRAP_SEED, LEARNED_SIZED, LONG_SIZED, MYOPIC, MYOPIC_SIZED,
@@ -42,7 +42,6 @@ CONTRASTS = (
 
 class Controls(NamedTuple):
     myopic_policy: np.ndarray
-    volatility_edges: np.ndarray
     scale_model: object
     learned_quantile: float
     learned_edges: np.ndarray
@@ -79,14 +78,13 @@ def evaluate(frame, forecasters, policy, rl_edges, size_edges, bucket_edges, sta
     ]), out / "forecast_summary.csv")
     write_csv(bucket_stats(predictions["rf"], bucket_edges), out / "uncertainty_buckets.csv", index=True)
 
-    sizes = position_sizes(predictions["rf"]["scaled_90_width"], size_edges)
+    sizes = position_sizes(volatility_scale(frame), size_edges)
     positions = baseline_positions(frame, predictions["rf"], sizes)
     environment = TradingEnvironment(frame, rl_edges)
     rl = environment.policy_positions(policy)
     myopic = environment.policy_positions(controls.myopic_policy)
     learned, learned_sizes, scale_stats = sizing_diagnostic(
-        frame, predictions["rf"], sizes, controls.volatility_edges,
-        controls.scale_model, controls.learned_quantile, controls.learned_edges,
+        frame, predictions["rf"], sizes, controls.scale_model, controls.learned_quantile, controls.learned_edges,
     )
     positions.update({
         "RL": rl, "RL + sizing": rl * sizes, "RL + static size": rl * static_size,
@@ -160,34 +158,35 @@ def dates_and_count(frame):
 
 def run(raw, out):
     spy = split_spy(load_spy(get_spy(raw)))
+    es = load_es(get_es(raw))
     forecasters = fit_forecasters(spy["train"], spy["calibration"])
     policy, rl_edges, tuning = select_policy(spy["train"], spy["validation"])
     calibration = spy["calibration"]
     calibration_rf = forecast(calibration, forecasters["rf"])
     calibration_width = calibration_rf["scaled_90_width"]
-    size_edges = width_edges(calibration_width, SIZE_QUANTILES)
+    size_edges = width_edges(volatility_scale(calibration), SIZE_QUANTILES)
     myopic_policy, myopic_iterations = fit_q(TradingEnvironment(spy["train"], rl_edges), 0.0)
     scale_model, fold_counts = fit_error_scale(spy["train"], forecasters["rf"][0])
     learned_q, learned_edges = calibrate_error_scale(calibration, calibration_rf, scale_model)
-    controls = Controls(
-        myopic_policy, width_edges(volatility_scale(calibration), SIZE_QUANTILES),
-        scale_model, learned_q, learned_edges,
-    )
+    controls = Controls(myopic_policy, scale_model, learned_q, learned_edges)
     bucket_edges = width_edges(calibration_width, (0.25, 0.50, 0.75))
     validation = spy["validation"]
-    validation_width = forecast(validation, forecasters["rf"])["scaled_90_width"]
     validation_rl = np.abs(TradingEnvironment(validation, rl_edges).policy_positions(policy))
     static_size = (
-        np.average(position_sizes(validation_width, size_edges), weights=validation_rl)
+        np.average(position_sizes(volatility_scale(validation), size_edges), weights=validation_rl)
         if validation_rl.sum() else 1.0
     )
     # Freeze all parameters before scoring either holdout.
-    es = load_es(get_es(raw))
     out.mkdir(parents=True, exist_ok=True)
     write_csv(pd.DataFrame(tuning), out / "rl_validation.csv")
     (out / "run_manifest.json").write_text(json.dumps({
         "spy": {key: dates_and_count(frame) for key, frame in spy.items()},
-        "es_transfer": {**dates_and_count(es), "roll_schedule": ES_ROLLS},
+        "es_transfer": {
+            **dates_and_count(es), "roll_schedule": ES_ROLLS,
+            "session_policy": "fixed_reference_weekdays_with_exclusions",
+            "excluded_weekdays": ES_REFERENCE_EXCLUSIONS,
+            "price_timing": "unverified_provider_daily_bars",
+        },
         "inputs": {
             "spy": {"revision": SPY_REVISION, "sha256": SPY_SHA256},
             "es": {"revision": ES_REVISION, "sha256": ES_SHA256},
@@ -202,11 +201,12 @@ def run(raw, out):
             "evaluation": "post_hoc_on_existing_windows",
             "myopic_gamma": 0.0, "myopic_iterations": myopic_iterations,
             "expanding_error_scale_fold_boundaries": SCALE_FOLDS, "oof_fold_sessions": fold_counts,
-            "pure_volatility_size_edges": controls.volatility_edges.tolist(),
+            "pure_volatility_size_edges": size_edges.tolist(),
             "learned_90_quantile": learned_q, "learned_90_size_edges": learned_edges.tolist(),
             "bootstrap": {"draws": BOOTSTRAP_DRAWS, "block_sessions": BLOCK_SESSIONS, "seed": BOOTSTRAP_SEED},
         },
-        "rl_volatility_edges": rl_edges.tolist(), "rf_size_edges": size_edges.tolist(),
+        "rl_volatility_edges": rl_edges.tolist(),
+        "rf_size_edges": width_edges(calibration_width, SIZE_QUANTILES).tolist(),
         "rf_bucket_edges": bucket_edges.tolist(), "validation_static_size": float(static_size),
         "conformal_quantiles": {
             name: {level: {"scaled": scaled, "fixed": fixed} for level, (scaled, fixed) in params.items()}

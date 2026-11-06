@@ -33,23 +33,36 @@ def simulate(frame, positions, cost_bps=BASE_COST_BPS):
         raise ValueError("Invalid net return or portfolio ruin under the selected cost assumption")
     equity = np.cumprod(1 + returns)
     peak = np.maximum.accumulate(np.r_[1.0, equity])[1:]
-    return frame[["entry_date", "exit_date", "contract", "roll", "entry_open", "exit_open", "market_return"]].assign(
+    fields = ["entry_date", "exit_date", "contract", "roll", "entry_open", "exit_open", "market_return"]
+    fields.extend(name for name in ("decision_at", "entry_at", "exit_at") if name in frame)
+    return frame[fields].assign(
         position=positions, turnover=turnover, cost=cost, net_return=returns,
         equity=equity, drawdown=equity / peak - 1,
     )
 
 
+def return_risk(returns):
+    """Sample volatility and annualized Sharpe along the last axis."""
+    returns = np.asarray(returns, dtype=float)
+    mean = returns.mean(axis=-1)
+    if returns.shape[-1] < 2:
+        return np.full_like(mean, np.nan), np.full_like(mean, np.nan)
+    std = np.where(np.ptp(returns, axis=-1) == 0, 0.0, returns.std(axis=-1, ddof=1))
+    sharpe = np.divide(np.sqrt(SESSIONS_PER_YEAR) * mean, std, out=np.full_like(mean, np.nan), where=std > 0)
+    return std, sharpe
+
+
 def performance(ledger):
-    returns = ledger["net_return"]
+    returns = ledger["net_return"].to_numpy()
     n = len(returns)
     ending_equity = ledger["equity"].iloc[-1]
-    daily_std = returns.std(ddof=1)
+    daily_std, sharpe = return_risk(returns)
     return {
         "sessions": n,
         "total_return": ending_equity - 1,
         "annualized_return": ending_equity ** (SESSIONS_PER_YEAR / n) - 1,
         "annualized_volatility": daily_std * np.sqrt(SESSIONS_PER_YEAR),
-        "sharpe": np.sqrt(SESSIONS_PER_YEAR) * returns.mean() / daily_std if daily_std > 0 else np.nan,
+        "sharpe": float(sharpe),
         "max_drawdown": ledger["drawdown"].min(),
         "turnover": ledger["turnover"].sum(),
         "annualized_turnover": ledger["turnover"].mean() * SESSIONS_PER_YEAR,
