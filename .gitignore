@@ -18,3 +18,7 @@ data/raw/
 *.log
 
 
+
+# Generated reruns and Microsoft Word temporary files
+runs/
+~$*.docx

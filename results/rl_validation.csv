@@ -1,0 +1,4 @@
+gamma,iterations,validation_sharpe,validation_annualized_return,validation_exposure,selected
+0.5,24,0.2776017664,0.03570340801,0.9799599198,False
+0.9,146,0.3357857162,0.0477168689,1,True
+0.97,500,0.3357857162,0.0477168689,1,False
