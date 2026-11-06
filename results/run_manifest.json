@@ -1,0 +1,113 @@
+{
+  "spy": {
+    "train": {
+      "sessions": 6467,
+      "first_decision": "1993-04-26",
+      "last_decision": "2018-12-27",
+      "first_entry": "1993-04-27",
+      "last_exit": "2018-12-31"
+    },
+    "calibration": {
+      "sessions": 755,
+      "first_decision": "2019-01-02",
+      "last_decision": "2021-12-29",
+      "first_entry": "2019-01-03",
+      "last_exit": "2021-12-31"
+    },
+    "validation": {
+      "sessions": 499,
+      "first_decision": "2022-01-03",
+      "last_decision": "2023-12-27",
+      "first_entry": "2022-01-04",
+      "last_exit": "2023-12-29"
+    },
+    "test": {
+      "sessions": 639,
+      "first_decision": "2024-01-02",
+      "last_decision": "2026-07-21",
+      "first_entry": "2024-01-03",
+      "last_exit": "2026-07-23"
+    }
+  },
+  "es_transfer": {
+    "sessions": 250,
+    "first_decision": "2025-03-13",
+    "last_decision": "2026-03-11",
+    "first_entry": "2025-03-14",
+    "last_exit": "2026-03-13",
+    "roll_schedule": {
+      "2025-03-17": "ESM25",
+      "2025-06-16": "ESU25",
+      "2025-09-15": "ESZ25",
+      "2025-12-15": "ESH26"
+    }
+  },
+  "inputs": {
+    "spy": {
+      "revision": "25eafd054ddb16d5471761312a0c852a672d6431",
+      "sha256": "fc9bfeae3ad120f4535628aa17e4de697b24185ee1c010bb3f21934b680cbb6d"
+    },
+    "es": {
+      "revision": "29efdfa21c5a5b2d7aa306397385cf116e011559",
+      "sha256": {
+        "ESH25": "bb3a6e0941f0b87f7e6f1c885fd33fe612b5e73da956c92bb8d6ba5020781192",
+        "ESM25": "94b12627eeb2d9770fa3054391c48e4f0f9616dadd297ec2f2ad5a483168d422",
+        "ESU25": "8d9997956b64eb8faea3e049aa0ae9929484f8f014259251232ac26e42206eab",
+        "ESZ25": "0ababbaefffde691e05cd69a1df85070bbacb32036c41adffb9839a99d670204",
+        "ESH26": "219ecbd9462dc52587265fcf6aad486268cc792535f9c5384f19b9e9f35547fc"
+      }
+    }
+  },
+  "runtime": {
+    "python": "3.12.14",
+    "numpy": "2.3.5",
+    "pandas": "2.2.3",
+    "scipy": "1.17.0",
+    "scikit-learn": "1.8.0",
+    "matplotlib": "3.10.8",
+    "pyarrow": "22.0.0"
+  },
+  "base_cost_bps": 5,
+  "cost_grid_bps": [
+    0,
+    5,
+    10
+  ],
+  "selected_gamma": 0.9,
+  "rl_volatility_edges": [
+    0.006608142639513067,
+    0.01061620633483914
+  ],
+  "rf_size_edges": [
+    0.023821334788692174,
+    0.039928669073112676
+  ],
+  "rf_bucket_edges": [
+    0.0218442409451439,
+    0.031030432860763485,
+    0.04456916537927937
+  ],
+  "validation_static_size": 0.30861723446893785,
+  "conformal_quantiles": {
+    "rf": {
+      "90": {
+        "scaled": 1.8406697508993253,
+        "fixed": 0.017738870826379403
+      },
+      "95": {
+        "scaled": 2.304439752555658,
+        "fixed": 0.027078960060897397
+      }
+    },
+    "ridge": {
+      "90": {
+        "scaled": 1.7525064012171672,
+        "fixed": 0.018161440561848874
+      },
+      "95": {
+        "scaled": 2.1942767597287656,
+        "fixed": 0.024461232262086935
+      }
+    }
+  }
+}

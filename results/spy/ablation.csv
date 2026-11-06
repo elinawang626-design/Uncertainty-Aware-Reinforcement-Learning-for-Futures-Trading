@@ -1,0 +1,4 @@
+reference,sized,sessions_with_position_change,delta_total_return,delta_annualized_return,delta_sharpe,delta_max_drawdown,delta_turnover,delta_mean_abs_exposure
+Random Forest,Random Forest + sizing,457,0.07066591228,0.03348394544,-0.5437361321,0.07610378407,-219,-0.4327073552
+RL,RL + sizing,457,-0.06565692173,-0.0234189892,0.2201609593,0.0780642496,-2,-0.4327073552
+RL + static size,RL + sizing,639,0.07866452635,0.02915343417,0.2201609593,-0.04047551705,15.9759519,0.2586754103

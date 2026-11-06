@@ -1,99 +1,73 @@
+"""Common execution model and performance statistics for every strategy."""
+
 import numpy as np
 import pandas as pd
-from pathlib import Path
 
-# ===== 项目根路径（写死） =====
-PROJECT_ROOT = Path("/Users/elina/Desktop/王懿宁的学校/昆山杜克/semester4/Uncertainty-Aware-Reinforcement-Learning-for-Futures-Trading")
+SESSIONS_PER_YEAR = 252
+BASE_COST_BPS = 5
 
-INP = PROJECT_ROOT / "data/processed/day3_compare/rf_test_preds_with_intervals.csv"
-OUT_DIR = PROJECT_ROOT / "data/processed/day4_backtest"
-OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# ===== 读数据 =====
-df = pd.read_csv(INP)
-df["date"] = pd.to_datetime(df["date"])
-df = df.sort_values("date").set_index("date")
+def trade_step(previous, target, market_return, roll, terminal, cost_rate):
+    """Support scalars and arrays so the RL environment shares this reward."""
+    open_turnover = np.where(roll, np.abs(previous) + np.abs(target), np.abs(target - previous))
+    exit_turnover = np.where(terminal, np.abs(target), 0.0)
+    turnover = open_turnover + exit_turnover
+    gross_return = target * market_return
+    cost = cost_rate * turnover
+    return gross_return - cost, turnover, cost
 
-# 真实下一日收益（被预测的目标）
-ret = df["y_true"].astype(float)
 
-# 点预测（方向）
-signal = np.sign(df["y_pred"].astype(float))  # -1, 0, +1
+def simulate(frame, positions, cost_bps=BASE_COST_BPS):
+    positions = np.asarray(positions, dtype=float)
+    if positions.shape != (len(frame),) or not len(frame) or not np.isfinite(positions).all():
+        raise ValueError("Expected one finite position per session")
+    if (np.abs(positions) > 1).any() or not np.isfinite(cost_bps) or cost_bps < 0:
+        raise ValueError("Expected exposure in [-1, 1] and nonnegative cost")
+    previous = np.r_[0.0, positions[:-1]]
+    terminal = np.arange(len(positions)) == len(positions) - 1
+    returns, turnover, cost = trade_step(
+        previous, positions, frame["market_return"].to_numpy(), frame["roll"].to_numpy(),
+        terminal, cost_bps / 10_000,
+    )
+    if not np.isfinite(returns).all() or (returns <= -1).any():
+        raise ValueError("Invalid net return or portfolio ruin under the selected cost assumption")
+    equity = np.cumprod(1 + returns)
+    peak = np.maximum.accumulate(np.r_[1.0, equity])[1:]
+    return frame[["entry_date", "exit_date", "contract", "roll", "entry_open", "exit_open", "market_return"]].assign(
+        position=positions, turnover=turnover, cost=cost, net_return=returns,
+        equity=equity, drawdown=equity / peak - 1,
+    )
 
-# 选择不确定性列
-width_col = "width_90" if "width_90" in df.columns else "width_95"
-width = df[width_col].astype(float)
 
-# ===== 交易成本（可调）=====
-cost_per_turnover = 0.0005  # 5 bps
-
-# ===============================
-# 策略 A：Baseline（不考虑不确定性）
-# ===============================
-pos_A = signal.copy()  # 全仓做多/做空
-turnover_A = pos_A.diff().abs().fillna(0)
-ret_A = pos_A * ret - cost_per_turnover * turnover_A
-
-# ===============================
-# 策略 B：Uncertainty-aware（按不确定性调仓）
-# 规则：
-#  - width 在最低 30%：仓位 = 1
-#  - width 在中间 40%：仓位 = 0.5
-#  - width 在最高 30%：仓位 = 0
-# ===============================
-q30, q70 = width.quantile([0.3, 0.7])
-
-size = pd.Series(0.0, index=df.index)
-size[width <= q30] = 1.0
-size[(width > q30) & (width <= q70)] = 0.5
-size[width > q70] = 0.0
-
-pos_B = signal * size
-turnover_B = pos_B.diff().abs().fillna(0)
-ret_B = pos_B * ret - cost_per_turnover * turnover_B
-
-# ===== 绩效指标函数 =====
-def perf_stats(r, freq=252):
-    r = r.dropna()
-    cum = (1 + r).cumprod()
-    total_ret = cum.iloc[-1] - 1
-    ann_ret = (1 + total_ret) ** (freq / len(r)) - 1
-    ann_vol = r.std() * np.sqrt(freq)
-    sharpe = ann_ret / ann_vol if ann_vol > 0 else np.nan
-    dd = cum / cum.cummax() - 1
-    mdd = dd.min()
+def performance(ledger):
+    returns = ledger["net_return"]
+    n = len(returns)
+    ending_equity = ledger["equity"].iloc[-1]
+    daily_std = returns.std(ddof=1)
     return {
-        "total_return": float(total_ret),
-        "annual_return": float(ann_ret),
-        "sharpe": float(sharpe),
-        "max_drawdown": float(mdd)
+        "sessions": n,
+        "total_return": ending_equity - 1,
+        "annualized_return": ending_equity ** (SESSIONS_PER_YEAR / n) - 1,
+        "annualized_volatility": daily_std * np.sqrt(SESSIONS_PER_YEAR),
+        "sharpe": np.sqrt(SESSIONS_PER_YEAR) * returns.mean() / daily_std if daily_std > 0 else np.nan,
+        "max_drawdown": ledger["drawdown"].min(),
+        "turnover": ledger["turnover"].sum(),
+        "annualized_turnover": ledger["turnover"].mean() * SESSIONS_PER_YEAR,
+        "mean_abs_exposure": ledger["position"].abs().mean(),
     }
 
-stats_A = perf_stats(ret_A)
-stats_B = perf_stats(ret_B)
 
-# ===== 保存结果 =====
-out = pd.DataFrame({
-    "ret_true": ret,
-    "signal": signal,
-    "width": width,
-    "pos_A": pos_A,
-    "ret_A": ret_A,
-    "pos_B": pos_B,
-    "ret_B": ret_B
-})
+def baseline_positions(frame, prediction, sizes):
+    rf = np.sign(prediction["prediction"].to_numpy())
+    return {
+        "Buy and hold": np.ones(len(frame)),
+        "MA60 trend": np.sign(frame["close_over_ma_60"].to_numpy()),
+        "Random Forest": rf,
+        "Random Forest + sizing": rf * sizes,
+    }
 
-out.to_csv(OUT_DIR / "daily_pnl.csv")
 
-summary = pd.DataFrame([
-    {"strategy": "Baseline (no uncertainty)", **stats_A},
-    {"strategy": "Uncertainty-aware", **stats_B},
-])
-
-summary.to_csv(OUT_DIR / "performance_summary.csv", index=False)
-
-print("\n=== Performance Summary ===")
-print(summary)
-print("\nSaved:")
-print(" -", OUT_DIR / "daily_pnl.csv")
-print(" -", OUT_DIR / "performance_summary.csv")
+def equity_curves(ledgers):
+    first = next(iter(ledgers.values()))
+    index = pd.DatetimeIndex([first["entry_date"].iloc[0], *first["exit_date"]], name="date")
+    return pd.DataFrame({name: np.r_[1.0, ledger["equity"]] for name, ledger in ledgers.items()}, index=index)
