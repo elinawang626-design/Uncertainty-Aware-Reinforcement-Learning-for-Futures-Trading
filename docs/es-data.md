@@ -43,6 +43,25 @@ python -m src.es_sample_audit --cme-v2 data/raw/round2_samples/cme_es_v2.csv --f
 
 No full archive was downloaded. The [holdout protocol](es-holdout-protocol.md) defines the next experiment before observing its performance.
 
+## March 2025 roll pilot
+
+The pinned public ES sample includes [per-contract minute Parquets](https://huggingface.co/datasets/lynx1231/historical-futures-data-sample/tree/29efdfa21c5a5b2d7aa306397385cf116e011559/data/minute/CME/ES). Both files match the SHA-256 digests in the revision's inventory. The first observed minute label for the March 17 roll is Sunday, March 16, at 17:00 Chicago time (22:00 UTC) for both legs. The ESH25 bar opens at 5626.75 and the ESM25 bar at 5678.75, matching their pinned daily opens. The ESM25 March 14 final observed minute closes at 5681.00. These bars establish minute-level overlap only. The publisher's `trading_date` column labels the first roll bars March 16, so CME sessions must be assigned from the calendar. The bars lack individual trade times and feed receipt times, and the sample covers only five ES contracts.
+
+The [Historical Futures Data public ES 10-second sample](https://historicalfuturesdata.com/browse/ES) was also downloaded and checked for schema. It has 164,895 aggregated records and no contract identifier. The vendor advertises separate paid tick files by contract. Their completeness, historical receipt semantics and licensing for this research remain unverified.
+
+For a point-in-time pilot, use Databento `GLBX.MDP3`, raw symbols `ESH5` and `ESM5`, schemas `definition` and `trades`, and the UTC range `[2025-03-13T00:00:00Z, 2025-03-19T00:00:00Z)`. `trades` supplies exchange and capture-server timestamps. In the vendor portal, quote the two schemas separately and export DBN, or run the helper with your API key set in your local environment. [Databento Trades schema](https://databento.com/docs/schemas/trades) · [Portal guide](https://databento.com/docs/portal/batch-download)
+
+```bash
+python -m pip install databento
+python -m src.es_databento_pilot
+# Set PILOT_BUDGET_USD to a cap you accept after seeing both quotes.
+python -m src.es_databento_pilot --max-usd "${PILOT_BUDGET_USD:?set an approved USD cap}"
+```
+
+The first command that invokes the module uses the free metadata quote API. The download requires an explicit estimate cap and a fresh output directory, by default under the ignored `data/raw/databento/es-roll-pilot/`. The manifest includes the query, quotes and hashes for completed files. Keep licensed raw data outside Git. The downloaded pilot must still pass the acquisition gate.
+
+Databento's July 2010 to May 2017 backfill lacks capture-server receipt times. The vendor populates both timestamp fields with CME FIX SendingTime and flags the receive timestamp. Under the current holdout protocol, establish a documented point-in-time availability guarantee or find an alternate source for that period before qualifying it. An alternate start date or availability rule would require a dated protocol amendment before performance is inspected. [Databento coverage and backfill notes](https://databento.com/blog/CME-history-extended-to-2010)
+
 ## ES price and session validation
 
 For the March 12, 2025 trade date, the pinned ESH25 bar and the CME sample both open at 5580.00. The provider reports 5604.75 in its close column, the same as the reported settlement. The sample's last qualifying trade is 5597.25. The prior session policy and date-only bars are retained for reproducing the reference diagnostic. The reference manifest records those limitations explicitly. [CME sample](https://www.cmegroup.com/files/download/xcme-tick-es-fut-20250312-part-00039-c000.csv) · [Settlement reported March 13](https://bluelinefutures.com/2025/03/13/e-mini-sp-and-nq-futures-hold-steady-ahead-of-ppi-and-jobless-claims/)
