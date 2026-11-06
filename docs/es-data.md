@@ -42,3 +42,15 @@ python -m src.es_sample_audit --cme-v2 data/raw/round2_samples/cme_es_v2.csv --f
 4. Keep licensed data local. Archive hashes, instrument IDs, code and research outputs allowed by the agreement. Keep any ledger that reconstructs licensed prices local unless the agreement permits sharing.
 
 No full archive was downloaded. The [holdout protocol](es-holdout-protocol.md) defines the next experiment before observing its performance.
+
+## ES price and session validation
+
+For the March 12, 2025 trade date, the pinned ESH25 bar and the CME sample both open at 5580.00. The provider reports 5604.75 in its close column, the same as the reported settlement. The sample's last qualifying trade is 5597.25. The prior session policy and date-only bars are retained for reproducing the reference diagnostic. The reference manifest records those limitations explicitly. [CME sample](https://www.cmegroup.com/files/download/xcme-tick-es-fut-20250312-part-00039-c000.csv) · [Settlement reported March 13](https://bluelinefutures.com/2025/03/13/e-mini-sp-and-nq-futures-hold-steady-ahead-of-ppi-and-jobless-claims/)
+
+For new data, call `src.prep_day1.build_es(contracts, calendar, rolls, first)` after independently constructing the historical calendar and aggregating eligible trades. Supply:
+
+- A calendar indexed by unique, increasing, timezone-naive CME trade dates, with timezone-aware `session_open` and `session_close` columns. Include the warm-up and final exit sessions, with historical early closes and holidays accounted for.
+- A mapping of year-qualified contract symbols to bars indexed by the same trade dates. Include `open`, `close`, `volume` and the timezone-aware `open_at`, `close_at` and `close_available_at` columns. Derive `open_at` from the first eligible trade and `close_at` from the last eligible trade. Obtain `close_available_at` from observed feed availability or a documented point-in-time feed guarantee.
+- Dated roll mappings and the initial active symbol. The builder checks both roll legs and the incoming contract's preceding close. Each required open must occur within five minutes of its scheduled session open. Each close must be available by its scheduled session close. Missing required dates, prices, or timestamps raise an error. The output records the decision, entry and exit timestamps. On a roll the outgoing exit and incoming entry are recorded in adjacent rows.
+
+Timestamp checks validate the supplied records against the supplied calendar. Source qualification still requires verifying feed conventions, the trade selection, and the calendar itself. The existing `src.experiment` command runs the pinned reference diagnostic.
