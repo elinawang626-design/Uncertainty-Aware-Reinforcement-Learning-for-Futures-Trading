@@ -1,0 +1,3 @@
+scale,nominal_coverage,coverage,mean_width,sessions,total_return,annualized_return,annualized_volatility,sharpe,max_drawdown,turnover,annualized_turnover,mean_abs_exposure
+Rolling volatility,0.9,0.9107981221,0.03219541632,639,0.147765317,0.05585441032,0.07403184284,0.7712775704,-0.09512895161,24,9.464788732,0.5672926448
+Learned error scale,0.9,0.917057903,0.03160198953,639,0.05099202275,0.01980721681,0.07048550175,0.3135659503,-0.07873148082,88,34.70422535,0.5367762128

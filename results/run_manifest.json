@@ -74,6 +74,38 @@
     10
   ],
   "selected_gamma": 0.9,
+  "round2": {
+    "evaluation": "post_hoc_on_existing_windows",
+    "myopic_gamma": 0.0,
+    "myopic_iterations": 2,
+    "expanding_error_scale_fold_boundaries": [
+      2003,
+      2007,
+      2011,
+      2015,
+      2019
+    ],
+    "oof_fold_sessions": [
+      1005,
+      1006,
+      1004,
+      1004
+    ],
+    "pure_volatility_size_edges": [
+      0.0064708334499041465,
+      0.010846233837874525
+    ],
+    "learned_90_quantile": 2.2960539391255335,
+    "learned_90_size_edges": [
+      0.02245765897098223,
+      0.03635905276519708
+    ],
+    "bootstrap": {
+      "draws": 2000,
+      "block_sessions": 10,
+      "seed": 42
+    }
+  },
   "rl_volatility_edges": [
     0.006608142639513067,
     0.01061620633483914

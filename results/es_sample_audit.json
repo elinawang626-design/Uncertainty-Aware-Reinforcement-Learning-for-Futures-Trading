@@ -1,0 +1,62 @@
+{
+  "cme_v2": {
+    "sha256": "c62b5527f57079ee28c1a05184adf03f6cafea41bf3ed48c85c59f1b45a2fe51",
+    "trade_rows": 818981,
+    "unique_session_dates": 1,
+    "missing_required_trade_fields": 0,
+    "duplicate_trade_keys": 0,
+    "out_of_regular_session_trades": 0,
+    "scheduled_roll_2025_03_17_present": false,
+    "contracts": [
+      {
+        "session": "2025-03-12",
+        "symbol": "ESH5",
+        "delivery": "202503",
+        "first_trade_utc": "2025-03-11T22:00:00+00:00",
+        "last_trade_utc": "2025-03-12T20:59:59.445923749+00:00",
+        "open_markers": 1,
+        "open_matches_marker": true,
+        "positive_volume_and_valid_ohlc": true
+      },
+      {
+        "session": "2025-03-12",
+        "symbol": "ESM5",
+        "delivery": "202506",
+        "first_trade_utc": "2025-03-11T22:00:00+00:00",
+        "last_trade_utc": "2025-03-12T20:59:58.760193239+00:00",
+        "open_markers": 1,
+        "open_matches_marker": true,
+        "positive_volume_and_valid_ohlc": true
+      },
+      {
+        "session": "2025-03-12",
+        "symbol": "ESU5",
+        "delivery": "202509",
+        "first_trade_utc": "2025-03-11T22:03:46.078749409+00:00",
+        "last_trade_utc": "2025-03-12T19:35:59.321308997+00:00",
+        "open_markers": 1,
+        "open_matches_marker": true,
+        "positive_volume_and_valid_ohlc": true
+      }
+    ]
+  },
+  "firstrate": {
+    "sha256": "f40666e3f25f841d7a7de18e8f18d9753af88365cc51aa20955ce7dbe2763855",
+    "daily_rows": 12,
+    "minute_rows": 16231,
+    "first_daily_date": "2026-10-21",
+    "last_daily_date": "2026-11-05",
+    "missing_weekday_daily_rows": 0,
+    "daily_and_minute_unique_sorted_valid_ohlc": true,
+    "nonpositive_daily_volume": 0,
+    "nonpositive_minute_volume": 0,
+    "both_boundary_minutes_and_daily_bar": 11,
+    "daily_vs_session_minute_disagreements": {
+      "open": 0,
+      "high": 0,
+      "low": 0,
+      "close": 10
+    },
+    "includes_contract_codes": false
+  }
+}
