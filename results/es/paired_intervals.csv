@@ -1,0 +1,19 @@
+comparison,reference,candidate,metric,estimate,ci_2.5,ci_97.5,valid_draws,block_sessions
+RF sizing,Random Forest,Random Forest + sizing,annualized_return,-0.1422373424,-0.6053521312,0.1023321245,2000,10
+RF sizing,Random Forest,Random Forest + sizing,sharpe,-0.8090691315,-2.522449267,0.8316385526,2000,10
+RL sizing,RL,RL + sizing,annualized_return,0.01273136042,-0.2594848955,0.1980877131,2000,10
+RL sizing,RL,RL + sizing,sharpe,0.5191791254,-0.6398117465,1.993422472,2000,10
+Adaptive vs static sizing,RL + static size,RL + sizing,annualized_return,0.04295057627,-0.04804670171,0.1406490647,2000,10
+Adaptive vs static sizing,RL + static size,RL + sizing,sharpe,0.5191791254,-0.6398117465,1.993422472,2000,10
+Direction before sizing,Buy and hold,RL,annualized_return,-0.1111849833,-0.4576123196,0.2094690054,2000,10
+Direction before sizing,Buy and hold,RL,sharpe,-0.5129797211,-2.748250698,0.7595471646,2000,10
+Direction after sizing,Long-Only + Same Sizing,RL + sizing,annualized_return,0,0,0,2000,10
+Direction after sizing,Long-Only + Same Sizing,RL + sizing,sharpe,0,0,0,2000,10
+Discount horizon before sizing,RL (gamma=0),RL,annualized_return,-0.1111849833,-0.4576123196,0.2094690054,2000,10
+Discount horizon before sizing,RL (gamma=0),RL,sharpe,-0.5129797211,-2.748250698,0.7595471646,2000,10
+Discount horizon after sizing,RL (gamma=0) + sizing,RL + sizing,annualized_return,0,0,0,2000,10
+Discount horizon after sizing,RL (gamma=0) + sizing,RL + sizing,sharpe,0,0,0,2000,10
+Myopic sizing,RL (gamma=0),RL (gamma=0) + sizing,annualized_return,-0.09845362289,-0.3983115759,0.1630415808,2000,10
+Myopic sizing,RL (gamma=0),RL (gamma=0) + sizing,sharpe,0.00619940424,-1.735667883,1.529994865,2000,10
+Learned error scale vs volatility,RL + sizing,RL + learned error sizing,annualized_return,-0.09623110058,-0.1450304068,-0.05013451945,2000,10
+Learned error scale vs volatility,RL + sizing,RL + learned error sizing,sharpe,-1.367344359,-2.029135928,-0.7506673315,2000,10

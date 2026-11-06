@@ -1,8 +1,12 @@
 # Uncertainty Aware Reinforcement Learning for Futures Trading
 
-This study trains a tabular reinforcement learning policy on daily SPY history and tests it on a later SPY holdout and five individual CME E-mini S&P 500 (ES) contracts. A volatility-scaled conformal interval controls the policy's exposure. The paired ablation applies sizing to the same sequence of short, flat and long actions and includes a constant-exposure control.
+The study trains a tabular trading policy on SPY and evaluates a later SPY holdout and a five-contract CME E-mini S&P 500 (ES) transfer. The second-round comparisons are **post hoc diagnostics on the same two windows**.
 
-At 5 bps per unit of one-way turnover, uncertainty sizing raised the RL Sharpe from **0.551 to 0.771 on SPY** and from **0.342 to 0.861 on ES**. It reduced maximum drawdown in both samples. SPY annualized return fell from 7.93% to 5.59%, and ES annualized return rose from 4.94% to 6.21%. Buy and hold earned the highest annualized return in both samples. The ES result measures transfer from SPY over a single year, and the two evaluation windows overlap in calendar time.
+**Direction and horizon.** The original gamma=0.9 policy was short on 48 SPY and 31 ES decision sessions, corresponding to six and five entries into a short run. The rolling-volatility rule assigned a zero multiplier on every short session. After sizing, the original policy, fixed long direction and the gamma=0 policy produced identical positions, net returns and turnover on every session. Before sizing, gamma=0 selected long throughout and had a higher net Sharpe and annualized return in both windows.
+
+**Uncertainty beyond volatility.** A learned forecast-error scale improved the descriptive ranking of absolute RF errors and changed sizing on 245 SPY and 75 ES sessions. It increased empirical coverage at similar interval widths, but reduced net Sharpe from 0.771 to 0.314 on SPY and from 0.861 to −0.506 on ES. ES annualized return fell from 6.21% to −3.41%.
+
+**New data.** The [source and sample audit](docs/es-data.md) found no qualifying multi-year ES panel available through the checked public samples. The [new ES holdout protocol](docs/es-holdout-protocol.md) specifies the split, roll policy, costs and primary metrics before any expanded performance is observed.
 
 ## Reproduce the experiment
 
@@ -13,12 +17,12 @@ python -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
 python -m unittest discover -s tests -v
-python -m src.experiment
+OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=1 python -m src.experiment --output runs/round2
 ```
 
-The experiment downloads and verifies six pinned inputs on first run. Network access to the GitHub API and Hugging Face is needed for the initial fetch. For offline reruns, reuse the verified files under `data/raw/` or point `--raw-dir` at a cache. The optional `python -m src.data_download` command warms that cache. Use `--output PATH` to choose where results go. The default `runs/` contains separate `spy/` and `es/` outputs, including daily forecasts and an execution ledger with dates, contract IDs, position, turnover, costs, returns and drawdown. The manifest records input revisions, digests, date boundaries, quantiles, chosen discount factor and package versions. CSV results use returns and widths in decimal units.
+The experiment downloads and verifies six pinned inputs on first run. Network access to the GitHub API and Hugging Face is needed for the initial fetch. For offline reruns, reuse the verified files under `data/raw/` or point `--raw-dir` at a cache. The optional `python -m src.data_download` command warms that cache. Use `--output PATH` to choose where results go. Each run contains separate `spy/` and `es/` outputs with daily forecasts, a full execution ledger, direction audit, paired bootstrap intervals and equity curves. The checked-in snapshot includes the compact matched direction ledger. The manifest records input revisions, digests, date boundaries, quantiles, chosen discount factor and package versions. CSV results use returns and widths in decimal units.
 
-The [research report](Report.docx), [frozen outputs](results/), [run manifest](results/run_manifest.json) and [validation scores](results/rl_validation.csv) reflect the checked-in reference run. The original report is available in Git history. Original Day 2–4 CSVs and the processed Parquet remain under `data/processed/` for audit.
+The [research report](Report.docx), [frozen outputs](results/), [run manifest](results/run_manifest.json) and [validation scores](results/rl_validation.csv) reflect the checked-in reference run. The first-round report and outputs are available at commit `c83115e`. Original Day 2–4 CSVs and the processed Parquet remain under `data/processed/` for audit.
 
 ## Data and chronology
 
@@ -41,8 +45,8 @@ A signal uses information through session `t` close. The trade enters at the nex
 - **Baselines.** Buy and hold is always long. The MA60 rule takes the sign of close relative to its trailing 60-session moving average. The original 600-tree Random Forest takes the sign of its predicted return. Ridge and a zero forecast are point-forecast comparators.
 - **Adaptive intervals.** For each level, compute the finite-sample order statistic at rank `ceil((n + 1) × (1 − alpha))` of calibration absolute residuals divided by trailing 20-session volatility, floored at 1 bp. Multiply by the decision-day scale for the half-width. The original constant absolute-residual interval remains a comparator. The old implementation's constant width came from its formula. It supplied no volatility-regime information, and fitting its sizing quantiles on test data was forward-looking.
 - **Position sizing.** The 30th and 70th percentiles of calibration RF 90% widths assign exposure multipliers of 1, 0.5 and 0. Calibration quartiles define the diagnostic buckets. Duplicate cutpoints collapse without manufacturing a rank difference for tied widths. A constant calibration width yields one bucket and a constant 0.5 sizing factor. Because the calibrated quantile is common to all days, percentile sizing ranks days exactly as the floored volatility scale does. The conformal step calibrates intervals to a target coverage level, and the P&L ablation measures the volatility-based sizing rule.
-- **RL.** State consists of the signs of the 5- and 60-session price-to-average features, the trailing volatility tercile fitted on training data, and previous inventory. Action selects a target of −1, 0 or +1. Reward is one open-to-open net return, including the costs of changing inventory and terminal liquidation. Fitted tabular Q-iteration replays the historical market path, enumerates all inventory/action pairs, estimates the empirical state transitions and iterates Bellman targets to convergence. The previous action becomes the next state's inventory. Validation Sharpe selects the discount factor from 0.50, 0.90 and 0.97, with ties going to the first candidate. The reference run selected 0.90.
-- **Ablation.** Plain RL, adaptive sizing and constant sizing share the same greedy action sequence. Only the executed position changes. The constant multiplier matches the adaptive policy's average absolute exposure on validation (0.309), so realized test exposures can differ. The sized policy remains an execution overlay on the frozen RL policy.
+- **RL.** State consists of the signs of the 5- and 60-session price-to-average features, the trailing volatility tercile fitted on training data, and previous inventory. Action selects a target of −1, 0 or +1. Reward is one open-to-open net return, including the costs of changing inventory and terminal liquidation. Fitted tabular Q-iteration replays the historical market path, enumerates all inventory/action pairs, estimates the empirical state transitions and iterates Bellman targets to convergence. The previous action becomes the next state's inventory. Validation Sharpe selects the discount factor from 0.50, 0.90 and 0.97, with ties going to the first candidate. The reference run selected 0.90. The matched gamma=0 diagnostic uses the same immediate reward and inventory state with zero weight on continuation. It is evaluated with and without the original sizing overlay.
+- **Ablation.** Plain RL, adaptive sizing and constant sizing share the same greedy action sequence. Only the executed position changes. The constant multiplier matches the adaptive policy's average absolute exposure on validation (0.309), so realized test exposures can differ. The sized policy remains an execution overlay on the frozen RL policy. Long-Only + Same Sizing takes the identical multiplier on every session. Policy replay uses prior raw action as inventory for both discount factors. The simulator charges the actual fractional changes after sizing.
 
 ## Performance at 5 bps per side
 
@@ -55,14 +59,39 @@ A signal uses information through session `t` close. The trade enters at the nex
 | RL | 7.93% | 0.551 | −17.32% | 4.94% | 0.342 | −10.44% |
 | RL + sizing | 5.59% | 0.771 | −9.51% | 6.21% | 0.861 | −3.61% |
 | RL + static size | 2.67% | 0.551 | −5.47% | 1.91% | 0.342 | −3.32% |
+| Long-Only + Same Sizing | 5.59% | 0.771 | −9.51% | 6.21% | 0.861 | −3.61% |
+| RL (gamma=0) | 20.88% | 1.253 | −19.77% | 16.05% | 0.855 | −14.14% |
+| RL (gamma=0) + sizing | 5.59% | 0.771 | −9.51% | 6.21% | 0.861 | −3.61% |
+| RL + learned error sizing | 1.98% | 0.314 | −7.87% | −3.41% | −0.506 | −5.45% |
 
 - [SPY performance](results/spy/performance_summary.csv) · [Ablation](results/spy/ablation.csv) · [Cost sensitivity](results/spy/cost_sensitivity.csv) · [Forecasts summary](results/spy/forecast_summary.csv) · [Uncertainty buckets](results/spy/uncertainty_buckets.csv)
 - [ES performance](results/es/performance_summary.csv) · [Ablation](results/es/ablation.csv) · [Cost sensitivity](results/es/cost_sensitivity.csv) · [Forecasts summary](results/es/forecast_summary.csv) · [Uncertainty buckets](results/es/uncertainty_buckets.csv)
 
-![SPY holdout equity curves for the seven strategies](results/spy/equity_curves.png)
+| Post hoc detail | SPY | ES |
+| --- | --- | --- |
+| Matched daily position, net return and turnover | [Daily audit](results/spy/direction_daily.csv) · [Counts](results/spy/direction_summary.csv) | [Daily audit](results/es/direction_daily.csv) · [Counts](results/es/direction_summary.csv) |
+| Error-scale ranking and net results | [Rank diagnostics](results/spy/scale_comparison.csv) · [Coverage and performance](results/spy/scale_performance.csv) | [Rank diagnostics](results/es/scale_comparison.csv) · [Coverage and performance](results/es/scale_performance.csv) |
+| Paired changes in return and Sharpe | [Bootstrap intervals](results/spy/paired_intervals.csv) | [Bootstrap intervals](results/es/paired_intervals.csv) |
 
-![CME ES contract transfer equity curves for the seven strategies](results/es/equity_curves.png)
+![SPY holdout equity curves including the matched controls](results/spy/equity_curves.png)
+
+![CME ES contract transfer equity curves including the matched controls](results/es/equity_curves.png)
 
 Turnover approximates traded notional as a fraction of equity using changes in target exposures, summed across sessions. Mark-to-market weight drift between rebalances is omitted. A flip from −1 to +1 costs two units. On a roll, turnover is the sum of absolute old and new exposure. Both initial entry and final liquidation are charged. Net simple returns compound from 1. Annualized return is ending equity raised to `252 / N` minus 1. Sharpe is `sqrt(252) × mean(daily net return) / sample_std(daily net return)` at a zero risk-free rate. A zero-variance Sharpe is blank. Drawdown includes the initial equity peak. Cost sensitivity reapplies 0 and 10 bps to the frozen positions alongside the reference case.
 
 The simulator uses normalized fractional notional and stylized open fills. ES is modeled using percentage changes in contract price, equivalent to a fractional position in a fully collateralized contract before costs. Exchange margin, integer contract sizing, variable slippage, market impact, collateral yield, and ETF financing and borrow fees are outside the model. Empirical conformal coverage can change under temporal dependence and market shifts. The high uncertainty bucket had larger average absolute realized returns than the low bucket in both samples, but SPY and ES share a market and overlapping dates. Interpret these results as descriptive comparisons over the two historical samples.
+
+## Error scale and paired comparisons
+
+The volatility benchmark computes the sizing tiers directly from trailing 20-session volatility with a 1 bp floor. The code checks that these tiers equal the original conformal width tiers on each window. The learned scale uses a fixed gradient-boosted regressor on the same trailing features. Its labels are absolute RF prediction errors from four expanding chronological folds spanning 2003–2018. Each RF fold is fitted strictly on earlier completed labels, and all 4,019 scale labels exit inside their fold. The full-training RF provides the common forecast center. The 2019–2021 calibration partition sets both the learned 90% residual quantile and each method's 30th and 70th sizing percentiles. Both risk methods apply the same 1, 0.5 and 0 multipliers to the original gamma=0.9 action sequence.
+
+| Sample and scale | 90% coverage | Mean width | Abs. error rank correlation | Avg. exposure | Turnover |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| SPY rolling volatility | 91.08% | 3.22% | 0.203 | 56.73% | 24 |
+| SPY learned error scale | 91.71% | 3.16% | 0.270 | 53.68% | 88 |
+| ES rolling volatility | 90.80% | 3.56% | 0.270 | 56.00% | 9 |
+| ES learned error scale | 92.40% | 3.54% | 0.448 | 50.20% | 35 |
+
+The learned scale's risk ranks correlated 0.660 with volatility ranks in SPY and 0.757 in ES (Spearman). Its sized policy had less drawdown on SPY and more on ES. Its realized positions can differ in direction because some original short decisions receive positive learned multipliers. Average exposure also differs, so the net contrast evaluates each complete overlay. It does not isolate a return difference at equal realized exposure.
+
+The paired circular block bootstrap uses 2,000 draws of 10-session blocks (seed 42), sampling both net return series at the same dates. Learned minus volatility Sharpe was −0.458 on SPY (95% interval [−1.182, 0.201]) and −1.367 on ES ([−2.029, −0.751]). The unsized horizon contrasts had intervals spanning zero in both samples. These intervals condition on the fitted policies, observed paths, cost model and block length. They describe previously seen, overlapping windows and omit model-estimation uncertainty.

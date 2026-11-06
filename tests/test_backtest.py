@@ -10,6 +10,7 @@ from src.day3_uncertainty_analysis import bucket_stats, position_sizes, width_ed
 from src.day4_rule_based_backtest import performance, simulate
 from src.prep_day1 import FEATURES, build_es, load_spy, split_spy
 from src.rl import TradingEnvironment, fit_q
+from src.round2 import LONG_SIZED, direction_audit, paired_intervals
 
 
 class TemporalTests(unittest.TestCase):
@@ -99,6 +100,27 @@ def market(returns, roll=None):
 
 
 class ExecutionTests(unittest.TestCase):
+    def test_suppressed_short_runs_and_matched_roll_costs(self):
+        frame = market([0.02, -0.03, 0.01, 0.02, -0.02], [False, False, True, False, False])
+        raw = np.array([1, -1, -1, 1, -1])
+        sizes = np.array([0.5, 0, 0, 1, 0])
+        ledger = {"RL": simulate(frame, raw), "RL + sizing": simulate(frame, raw * sizes),
+                  LONG_SIZED: simulate(frame, sizes)}
+        audit, counts = direction_audit(ledger, sizes)
+        self.assertEqual(counts["raw_short_sessions"], 3)
+        self.assertEqual(counts["raw_short_entries"], 2)
+        self.assertEqual(counts["suppressed_short_sessions"], 3)
+        self.assertEqual(counts["sized_short_sessions"], 0)
+        self.assertFalse(audit.filter(like="delta_").ne(0).any().any())
+        intervals = paired_intervals(ledger, [("direction", LONG_SIZED, "RL + sizing")])
+        np.testing.assert_array_equal(intervals[["estimate", "ci_2.5", "ci_97.5"]], 0)
+
+        ledger[LONG_SIZED] = simulate(frame, [0.5, 0.5, 0, 1, 0])
+        audit, counts = direction_audit(ledger, sizes)
+        self.assertEqual(counts["different_position_sessions"], 1)
+        self.assertEqual(counts["different_turnover_sessions"], 2)
+        self.assertNotEqual(audit["delta_net_return"].iloc[1], 0)
+
     def test_entry_flip_roll_and_terminal_costs(self):
         frame = market([0.0, 0.0, 0.0], [False, False, True])
         ledger = simulate(frame, [1.0, -1.0, -0.5], 5)
